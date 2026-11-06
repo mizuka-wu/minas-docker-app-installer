@@ -52,7 +52,7 @@ server {
 ### 3) 应用中心注册 —— icon + 条目 + UI 伺服
 - **先备份**:`cp /data/plugin/u<UID>.list /data/plugin/u<UID>.list.bak-$(date +%s)`(别用 vendor `.bak` 后缀)。
 - **icon**:放 `/data/plugin/www/icon/<app>.icon`(内容=PNG)。来源优先级:① 从跑着的 WebUI 回环抓官方 PNG(`curl 127.0.0.1:<ctr>/<静态icon>`);② 复用 `/data/plugin/www/icon/<现成>.icon`;③ 官网 SVG 用 ImageMagick `convert -density 512 <svg> -resize 256x256 out.png`(≥256 才清晰)。源用**全路径**。
-- **条目**:写进 `/data/plugin/u<UID>.list`(自装 docker 应用**无 `resource` 字段**;`id` 用 9000+ 避撞官方 1-18 与商店 1xxxx)。结构:顶层 `icon:/icon/<app>.icon` + `frontend`(title/type:url/permission/dev_type/url)+ `info`(plugin/name/id/port/tags/desc)。
+- **条目**:写进 `/data/plugin/u<UID>.list`(自装 docker 应用**无 `resource` 字段**;`id` 用 9000+ 避撞官方 1-18 与商店 1xxxx)。结构**顶层就 8 个字段**、严格对齐能用的 docker 条目(如 qB):`status=running` `install=true` `enable=true` `icon` `frontend` `info` `timestamp` `changetime`。**别加 `progress`/`error` 这些下载态字段**(那是带 `resource` 安装包的条目才有的;塞给 docker 应用会被应用中心读成"下载中 0%"、显示下载角标——实测踩坑)。`frontend.url` 用**相对路径** `/plugin/<UID>/<app>/`(走第 3 步 UI 伺服),**别用绝对 URL**(SPA/0.0.0.0 接不住)。
 - **UI 伺服(修"点进去 404"的关键)**:应用中心点 icon 后,实际是去 **`/plugin/<UID>/<app>/index.html`** 这个**相对路径**加载 UI(注意 `<UID>` **不带 `u`**),**不是**拨 `info.port`。这路径没 nginx 伺服 → 404。修法=在 **`/etc/nginx/conf.d/luci/`**(443 站点)加一个**前缀 location** 把 `/plugin/<UID>/<app>/` 代理到容器 WebUI:
 ```
 location /plugin/<UID>/<app>/ {
@@ -97,5 +97,5 @@ rm -rf /data/apps/<app>
 - **icon 太小不渲染**:WebUI 回环抓到的可能是 32px → 256×256 才清晰。
 - **镜像没 arm64** → 拉下是 amd64,容器秒崩;先 `buildx imagetools inspect` 验。大陆拉 hub/ghcr 慢 → 重试,linuxserver 走 `lscr.io`。
 - **端口撞** → 装前 `ss -ltn`;别拍脑袋 8080(常被占)。
-- 写 `.list` 用 `os.replace` 原子替换 + chmod 644;别用 vendor `.bak` 命名(撞它每日 04:07 合并同步)。
+- 写 `.list` 优先**就地覆盖**(改完直写原文件,或 `cp .tmp .list`),**别用 `os.replace` rename**(删了重建)——实测 rename 会触发厂商后端重写、把刚加的第三方条目清掉(qb/ani-rss 就是这样没的);chmod 644;备份别用 vendor `.bak` 命名(撞它每日 04:07 合并同步)。
 - 用户 Mac 往 NAS 拷大文件时构建/全盘扫描会拖垮 2323 SSH → 探测保持轻量、timeout 给足。

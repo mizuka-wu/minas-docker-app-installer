@@ -35,30 +35,30 @@ EOF
   [ -n "$icon" ] && cp "$icon" "$ICON_DIR/$app.icon" || echo "   (未提供 icon_src,跳过;可稍后放 $ICON_DIR/$app.icon)"
   echo "==> 4/4 注册 + UI 伺服"
   python3 - "$app" "$lan" "$ctr" <<'PY'
-import json, os, sys, datetime
+import json, os, sys, datetime, shutil
 app, lan, ctr = sys.argv[1], sys.argv[2], sys.argv[3]
+uid = os.environ.get("MINAS_UID", "98067140")
 p = "/data/plugin/u%s.list" % os.environ.get("MINAS_UID", "98067140")
-b = p + ".bak-%d" % int(datetime.datetime.now().timestamp())
-os.replace(p, b) if os.path.exists(p) else None
-raw = open(b).read() if os.path.exists(b) else "{}"
+b = p + ".pre-register"
+shutil.copy(p, b) if os.path.exists(p) else None
+raw = open(p).read() if os.path.exists(p) else "{}"
 # 找到最后一个完整 JSON 对象
 obj, _ = json.JSONDecoder().raw_decode(raw)
 now = datetime.datetime.now().isoformat()
 obj[app] = {
-  "status": "running", "install": True, "enable": True, "progress": "0",
+  "status": "running", "install": True, "enable": True,
   "icon": "/icon/%s.icon" % app,
   "frontend": {"icon": "/%s.icon" % app, "title": app, "type": "url",
-    "dev_type": [1,2,3,4], "url": [{"dev_type": [1,2,3,4], "url": "http://0.0.0.0:%s/" % lan}],
+    "dev_type": [1,2,3,4], "url": [{"dev_type": [1,2,3,4], "url": "/plugin/%s/%s/" % (uid, app)}],
     "sortid": 1, "permission": ["admin"], "widget": []},
   "info": {"plugin": app, "name": app, "id": "90%02d" % (len(obj) % 100), "version": "1.0.0",
     "port": lan, "type": "standard", "system": False, "tags": ["tool"],
     "publisher": "", "developer": "", "desc": "installed via minas-docker-app-installer",
     "changelog": "", "timestamp": now, "size": 0, "ext": {}},
-  "changetime": now, "error": {"errno": 0, "laststatus": "running"},
+  "timestamp": now, "changetime": now,
 }
-t = p + ".tmp"
-json.dump(obj, open(t, "w"), indent=2, ensure_ascii=False)
-os.replace(t, p); os.chmod(p, 0o644)
+json.dump(obj, open(p, "w"), indent=2, ensure_ascii=False)
+os.chmod(p, 0o644)
 print("registered", len(obj), "entries ->", p)
 PY
   # UI 伺服(修 404):前缀 location 代理到容器 WebUI
@@ -84,11 +84,11 @@ import json, os, sys
 app = sys.argv[1]
 p = "/data/plugin/u%s.list" % os.environ.get("MINAS_UID", "98067140")
 if not os.path.exists(p): print("no registry"); sys.exit(0)
-t = p + ".tmp"; raw = open(p).read()
+raw = open(p).read()
 obj, _ = json.JSONDecoder().raw_decode(raw)
 obj.pop(app, None)
-json.dump(obj, open(t, "w"), indent=2, ensure_ascii=False)
-os.replace(t, p); os.chmod(p, 0o644)
+json.dump(obj, open(p, "w"), indent=2, ensure_ascii=False)
+os.chmod(p, 0o644)
 print("unregistered", app)
 PY
   rm -rf "/data/apps/$app"   # ⚠️ 确认无个人数据
