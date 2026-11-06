@@ -20,6 +20,15 @@
 
 全程走 root 通道(瞬态 2323),仅自有设备;详细命令、关键坑(tab 格式、厂商重写 `.list`、访问日志验证)、回滚步骤 → 见 [`SKILL.md`](./SKILL.md)。
 
+
+## 卸载(uninstall)
+装的反序,5 步(或用 `ns-app.sh uninstall <app>` 一键):
+1. 删应用中心注册条目(还原装前备份)
+2. 删 UI 伺服 `conf.d/luci/<app>-uc.conf` → `nginx -s reload`
+3. 删反代 `conf.d/<app>.conf` → `nginx -s reload`
+4. 删容器 `docker rm -f <app>`
+5. 删数据 `rm -rf /data/apps/<app>`(⚠️ 先确认无个人数据)
+
 ## 要求 / 不适用
 - ✅ 有 WebUI 的应用(下载 / 影音 / 媒体库),aarch64 架构
 - ✅ 想要:应用中心里出现图标、点开能进 WebUI

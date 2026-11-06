@@ -72,14 +72,21 @@ location /plugin/<UID>/<app>/ {
 - **占用端口**:官方 9000/9100/9200、商店 18119 系、系统 80/443/8081/8083/8086;反代 ≥8200,装前 `ss -ltn` 探空。
 - **落盘**:`/data` 持久(应用数据落 `/data/apps/<name>/`);`/var`=tmpfs(重启清,别放);`/`=erofs 只读;**用户数据池 `/home/<UID>/pool0/data` 绝不碰**。
 
-## 回滚(反序)
+## 卸载(uninstall,装的反序 5 步)
 ```
-/data/docker/docker rm -f <app>
+# 1) 删应用中心注册条目(恢复备份 或 删该 key)
+cp /data/plugin/u<UID>.list.bak-<ts> /data/plugin/u<UID>.list     # 用装前那份备份还原
+# 2) 删 UI 伺服(443 那个前缀 location)
+rm -f /etc/nginx/conf.d/luci/<app>-uc.conf && nginx -t && nginx -s reload
+# 3) 删反代
 rm -f /etc/nginx/conf.d/<app>.conf && nginx -t && nginx -s reload
-rm -f /etc/nginx/conf.d/luci/<app>-uc.conf && nginx -t && nginx -s reload   # UI 伺服
-# 注册表:恢复 .bak 备份 或 删该 key
-rm -rf /data/apps/<app>     # 确认是他授权装的、无个人数据
+# 4) 删容器
+/data/docker/docker rm -f <app>
+# 5) 删数据(⚠️ 确认是他授权装的、且无个人数据)
+rm -rf /data/apps/<app>
 ```
+> `ns-app.sh uninstall <app>` 会按 1→5 自动跑(第 5 步删数据前脚本会提示确认)。
+
 
 ## 关键坑(Pitfalls)
 - ⚠️ **注册表是 tab 格式**(`\t"key":\t{`,冒号后 tab,中文原生 UTF-8);`json.dump(indent=N)` 写**空格**→**所有 icon 全没**(踩过)。改**手术式文本插入**:整文件当文本,严格 tab 拼条目,其他条目字节不动;写完校验无 `": "`。
