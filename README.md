@@ -29,6 +29,13 @@
 4. 删容器 `docker rm -f <app>`
 5. 删数据 `rm -rf /data/apps/<app>`(⚠️ 先确认无个人数据)
 
+## 前置:SSH / Root 通道
+本流程全程走 root 通道(瞬态 2323,或 `ssh -i <SSH_KEY> root@<NAS_IP>`)。取 root 的开源工具(GitHub):
+- 固件 `1.0.9.462` → [`kid0114/xiaomi-nas-ssh-root-tool`](https://github.com/kid0114/xiaomi-nas-ssh-root-tool)(macOS 友好)
+- 通用 / 老固件 → [`scruel/xiaomi-storage-minas-tool`](https://github.com/scruel/xiaomi-storage-minas-tool) + gist `xiaomi-storage-open-ssh-wsl.sh`
+
+详细步骤(证书链、持久化、应用中心注册 schema)见 Hermes 技能 `xiaomi-nas-root-ssh`。
+
 ## 要求 / 不适用
 - ✅ 有 WebUI 的应用(下载 / 影音 / 媒体库),aarch64 架构
 - ✅ 想要:应用中心里出现图标、点开能进 WebUI
