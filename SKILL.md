@@ -63,6 +63,13 @@ location /plugin/<UID>/<app>/ {
 ```
 `nginx -t && nginx -s reload`。
 
+### 4) 持久化守护 —— 防「点添加应用被清」(cron 自动补回)
+厂商后端在你**点「添加应用」**时从**远端目录**重写 registry、把非目录条目(自装 docker 应用)清掉;本地改 `server.list` 目录没用(被远端冲)。解法=**守护清单 + cron**(不碰原厂服务):
+- **清单** `/data/plugin/community-apps.json`:列要保的应用,每条 `{app, title, icon, url, port, id}`;**新增应用 = 加一条**,守护自动认。
+- **守护脚本** `/data/plugin/keep-apps.py`:读清单,发现 registry 缺谁就**就地补回**(8 字段 docker 格式、整数时间戳;就地写、不 rename,不触发重写)。
+- **cron**:`crontab` 加 `*/2 * * * * /usr/bin/python3 /data/plugin/keep-apps.py >/dev/null 2>&1`(每 2 分钟;点「添加应用」清掉后 2 分钟内复活,平时静默)。
+> **清单 = 唯一事实源**:加/删应用只改清单,不用手动动注册表(守护会同步)。脚本+清单模板见本仓 `keep/`。
+
 ## 环境事实(本机实测)
 - **aarch64** → 镜像必须有 arm64 清单(linuxserver/* 基本都有;纯 amd64 别用)。验:`/data/docker/docker buildx imagetools inspect <img>` 看有没有 `linux/arm64`。
 - **docker**:CLI 不在 PATH = `/data/docker/docker`;socket `/run/docker.sock`;data-root `/data/docker_data`。
@@ -74,6 +81,8 @@ location /plugin/<UID>/<app>/ {
 
 ## 卸载(uninstall,装的反序 5 步)
 ```
+# 0) 先从守护清单删该应用(⚠️ 不删的话 cron 会把它补回来!)
+#    编辑 /data/plugin/community-apps.json → 删掉该 app 那条
 # 1) 删应用中心注册条目(恢复备份 或 删该 key)
 cp /data/plugin/u<UID>.list.bak-<ts> /data/plugin/u<UID>.list     # 用装前那份备份还原
 # 2) 删 UI 伺服(443 那个前缀 location)
@@ -90,7 +99,7 @@ rm -rf /data/apps/<app>
 
 ## 关键坑(Pitfalls)
 - ⚠️ **注册表是 tab 格式**(`\t"key":\t{`,冒号后 tab,中文原生 UTF-8);`json.dump(indent=N)` 写**空格**→**所有 icon 全没**(踩过)。改**手术式文本插入**:整文件当文本,严格 tab 拼条目,其他条目字节不动;写完校验无 `": "`。
-- ⚠️ **厂商后端会主动重写 `.list`**(缩回 / 删自造条目)→ 手动注册**不持久**;被清按本流程重注册即可,不算故障。要持久得走厂商 mpk 安装机制(另题)。
+- ⚠️ **厂商后端会主动重写 `.list`**——**触发点 = 你点「添加应用」**(它从远端目录重写 registry、删自造条目;本地改 `server.list` 目录没用,会被远端冲)。手动注册**不持久**。**解法 = 第 4 步守护 cron**(清单 + 脚本,每 2 分钟自动补回);真·官方级持久需走厂商 mpk 机制(另题)。
 - **打开机制**=应用中心按 `/plugin/<UID>/<app>/` 相对路径加载 UI(需第 3 步 UI 伺服);`info.port` 只是浏览器直连兜底;**别指望 `frontend.url` 绝对 URL**(SPA 接不住→404)。
 - **回环在 80 测不到 UI 伺服**(它在 443 站点,80 必 404)→ 验证靠**访问日志**:让手机点一次,`grep /var/log/nginx/access.log` 看那条请求变 200;**真实路径以日志为准,别猜**。
 - **前缀 location 可带 URI,正则 location 不行**(否则 `proxy_pass cannot have URI`)。

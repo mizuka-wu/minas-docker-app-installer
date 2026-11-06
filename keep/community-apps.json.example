@@ -1,0 +1,22 @@
+{
+  "_comment": "社区应用守护清单:列在这里的应用,后端重写 registry 清掉后会被 keep-apps.py 自动补回。新增应用:加一条 {app, icon, url, port, id, title} 即可。",
+  "registry": "/data/plugin/u98067140.list",
+  "apps": [
+    {
+      "app": "qbittorrent",
+      "title": "qBittorrent",
+      "icon": "/icon/qbittorrent.icon",
+      "url": "/plugin/98067140/qbittorrent/",
+      "port": "8200",
+      "id": 9001
+    },
+    {
+      "app": "ani-rss",
+      "title": "ani-rss",
+      "icon": "/icon/ani-rss.icon",
+      "url": "/plugin/98067140/ani-rss/",
+      "port": "8300",
+      "id": 9002
+    }
+  ]
+}
