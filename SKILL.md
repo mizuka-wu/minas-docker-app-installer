@@ -1,7 +1,7 @@
 ---
 name: xiaomi-nas-app-docker
 description: "Xiaomi NAS: 装 WebUI 应用(docker + 反代 + 应用中心 icon)"
-version: 2.1.0
+version: 3.0.0
 author: wuyiwei
 license: MIT
 metadata:
@@ -52,19 +52,24 @@ server {
 ### 3) 应用中心注册 —— icon + 条目 + UI 伺服
 - **先备份**:`cp /data/plugin/u<UID>.list /data/plugin/u<UID>.list.bak-$(date +%s)`(别用 vendor `.bak` 后缀)。
 - **icon**:放 `/data/plugin/www/icon/<app>.icon`(内容=PNG)。来源优先级:① 从跑着的 WebUI 回环抓官方 PNG(`curl 127.0.0.1:<ctr>/<静态icon>`);② 复用 `/data/plugin/www/icon/<现成>.icon`;③ 官网 SVG 用 ImageMagick `convert -density 512 <svg> -resize 256x256 out.png`(≥256 才清晰)。源用**全路径**。
-- **条目**:写进 `/data/plugin/u<UID>.list`(自装 docker 应用**无 `resource` 字段**;`id` 用 9000+ 避撞官方 1-18 与商店 1xxxx)。结构**顶层就 8 个字段**、严格对齐能用的 docker 条目(如 qB):`status=running` `install=true` `enable=true` `icon` `frontend` `info` `timestamp` `changetime`。**别加 `progress`/`error` 这些下载态字段**(那是带 `resource` 安装包的条目才有的;塞给 docker 应用会被应用中心读成"下载中 0%"、显示下载角标——实测踩坑)。`frontend.url` 用**相对路径** `/plugin/<UID>/<app>/`(走第 3 步 UI 伺服),**别用绝对 URL**(SPA/0.0.0.0 接不住)。
-- **UI 伺服(修"点进去 404"的关键)**:应用中心点 icon 后,实际是去 **`/plugin/<UID>/<app>/index.html`** 这个**相对路径**加载 UI(注意 `<UID>` **不带 `u`**),**不是**拨 `info.port`。这路径没 nginx 伺服 → 404。修法=在 **`/etc/nginx/conf.d/luci/`**(443 站点)加一个**前缀 location** 把 `/plugin/<UID>/<app>/` 代理到容器 WebUI:
+- **条目**:写进 `/data/plugin/u<UID>.list`(自装 docker 应用**无 `resource` 字段**;`id` 用 9000+ 避撞官方 1-18 与商店 1xxxx)。结构**顶层就 8 个字段**、严格对齐能用的 docker 条目(如 qB):`status=running` `install=true` `enable=true` `icon` `frontend` `info` `timestamp` `changetime`。**别加 `progress`/`error` 这些下载态字段**(那是带 `resource` 安装包的条目才有的;塞给 docker 应用会被应用中心读成"下载中 0%"、显示下载角标——实测踩坑)。`frontend.url` 用 `[{"dev_type":[1,2,3,4],"url":"/"}]`——厂商端拼接成 `/plugin/<UID>/<app>/`(带尾斜杠)。**空串会缺尾斜杠**(SPA 相对路径基准歪)、**`/index.html` 会让 SPA 把 index.html 当目录**(assets 全 404 位)——都实测踩过;绝对 URL 更不行。卡片不出时补 `online:true` `autograde:false`。
+- **UI 伺服(修"点进去 404/超时"的关键)= 同源反代三件套**：在 **`/etc/nginx/conf.d/luci/`**(443 站点)写 `<app>-uc.conf`：
 ```
-location /plugin/<UID>/<app>/ {
-  proxy_pass http://127.0.0.1:<ctr>/;
-  proxy_set_header Host $host;
-  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+location = /plugin/<UID>/<app> { return 301 /plugin/<UID>/<app>/; }   # 补尾斜杠，否则落 vendor fcgi 301 风暴
+location ^~ /plugin/<UID>/<app>/ {                                      # ^~ 才压得住厂商 regex location
+    add_header Cache-Control "no-store";                                # 防 WebView 缓存旧壳
+    proxy_pass http://127.0.0.1:<ctr>/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
-`nginx -t && nginx -s reload`。
+`nginx -t && nginx -s reload`。手机远程(厂商中继)和局域网双端同一条路可用(qB/AniRSS 双端实证)。前提：应用资源/API 是相对路径(`./`，主流 SPA 都如此；动手前 curl 首页确认)。`conf.d/luci` 规则有被 vendor 同步回收的先例，回收后卡片变超时——重跑 register 即恢复。
 
-### 3b) 直连模式(免 nginx UI 伺服,2026-11-07 实战验证)
-不依赖 `conf.d/luci` 规则(那会被 vendor 同步回收),四件套:
+### 3b) 直连模式(备选：仅当应用资源走绝对路径、同源反代接不住时才用；此时**不要**写 `<app>-uc.conf`，否则请求被自家反代截走、cgi 摸不到)
+不依赖 `conf.d/luci` 规则，四件套:
 1. 容器端口**绑 LAN**:`-p <lan>:<ctr_port>`(手机 WebView 从手机侧发起,回环绑法手机打不开;仅限可信内网);
 2. 容器 `pluginsrc/<app>/ui/` 放 `index.html`(内容=`<meta http-equiv="refresh" content="0;url=http://<NAS_IP>:<lan>/">` 自跳 SPA 老家,绕开资源相对路径坑)+ `<app>.cgi`(FILEURI 空/index.html→吐 index.html,其余按 `$FILEREQ` 静态伺服,`chmod +x`);
 3. 条目 `frontend.url` 用 `[{"dev_type":[1,2,3,4],"url":"/index.html"}]`(**对齐厂商原生条目的写法**;只填 `/` 会让 plugin.cgi 找不到入口→400);
