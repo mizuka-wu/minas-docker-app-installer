@@ -1,7 +1,7 @@
 ---
 name: xiaomi-nas-app-docker
 description: "Xiaomi NAS: 装 WebUI 应用(docker + 反代 + 应用中心 icon)"
-version: 3.0.0
+version: 3.1.0
 author: wuyiwei
 license: MIT
 metadata:
@@ -52,7 +52,7 @@ server {
 ### 3) 应用中心注册 —— icon + 条目 + UI 伺服
 - **先备份**:`cp /data/plugin/u<UID>.list /data/plugin/u<UID>.list.bak-$(date +%s)`(别用 vendor `.bak` 后缀)。
 - **icon**:放 `/data/plugin/www/icon/<app>.icon`(内容=PNG)。来源优先级:① 从跑着的 WebUI 回环抓官方 PNG(`curl 127.0.0.1:<ctr>/<静态icon>`);② 复用 `/data/plugin/www/icon/<现成>.icon`;③ 官网 SVG 用 ImageMagick `convert -density 512 <svg> -resize 256x256 out.png`(≥256 才清晰)。源用**全路径**。
-- **条目**:写进 `/data/plugin/u<UID>.list`(自装 docker 应用**无 `resource` 字段**;`id` 用 9000+ 避撞官方 1-18 与商店 1xxxx)。结构**顶层就 8 个字段**、严格对齐能用的 docker 条目(如 qB):`status=running` `install=true` `enable=true` `icon` `frontend` `info` `timestamp` `changetime`。**别加 `progress`/`error` 这些下载态字段**(那是带 `resource` 安装包的条目才有的;塞给 docker 应用会被应用中心读成"下载中 0%"、显示下载角标——实测踩坑)。`frontend.url` 用 `[{"dev_type":[1,2,3,4],"url":"/"}]`——厂商端拼接成 `/plugin/<UID>/<app>/`(带尾斜杠)。**空串会缺尾斜杠**(SPA 相对路径基准歪)、**`/index.html` 会让 SPA 把 index.html 当目录**(assets 全 404 位)——都实测踩过;绝对 URL 更不行。卡片不出时补 `online:true` `autograde:false`。
+- **条目**:写进 `/data/plugin/u<UID>.list`(自装 docker 应用不写 `resource` 键，或 mpk 用 `http://<NAS_IP>:<port>/` URL 形——mpk 指本地 INFO 路径会触发厂商签名包校验被判装失败;`id` 用 **int** 9000+ 避撞官方 1-18)。`frontend.url` 用 `[{"dev_type":[1,2,3,4],"url":"/"}]` 数组形——**裸字符串客户端静默丢整卡**(引擎与脚本双双踩过);厂商端拼接成 `/plugin/<UID>/<app>/`(带尾斜杠)，**空串会缺尾斜杠**(落 vendor fcgi 301 风暴)、**`/index.html` 会让 SPA 把 index.html 当目录**(assets 白屏)。url 里禁 `?query`(中继通道超时)，防缓存靠反代 `no-store`。**出卡硬门槛(缺任一整卡不显示,2026-11-07 全字段 diff 实证)**:顶层 `online:true`+`autograde:false`+顶层 `timestamp`(**int unix**,不是 iso 字符串)、`frontend.sortid`=info.id(**数值**,空串/固定值会排序异常)、`permission:["admin"]`、`widget:[]`(不是 `{}`)、`info.ext:{"admin":true}`、`info.id` 数值。`progress` 若要写必须 `"100"`(写 0 或别的会挂"下载中"角标)。
 - **UI 伺服(修"点进去 404/超时"的关键)= 同源反代三件套**：在 **`/etc/nginx/conf.d/luci/`**(443 站点)写 `<app>-uc.conf`：
 ```
 location = /plugin/<UID>/<app> { return 301 /plugin/<UID>/<app>/; }   # 补尾斜杠，否则落 vendor fcgi 301 风暴

@@ -30,7 +30,7 @@ register() {
   [ -n "$icon" ] && cp "$icon" "$ICON_DIR/$app.icon" || echo "   (未提供 icon_src,跳过;可稍后放 $ICON_DIR/$app.icon)"
   echo "==> 4/4 注册 + UI 伺服"
   python3 - "$app" "$lan" "$ctr" <<'PY'
-import json, os, sys, datetime, shutil
+import json, os, sys, time, shutil
 app, lan, ctr = sys.argv[1], sys.argv[2], sys.argv[3]
 uid = os.environ.get("MINAS_UID") or sys.exit("请设 MINAS_UID 环境变量(你的米家数字 UID)")
 p = "/data/plugin/u%s.list" % uid
@@ -39,18 +39,21 @@ shutil.copy(p, b) if os.path.exists(p) else None
 raw = open(p).read() if os.path.exists(p) else "{}"
 # 找到最后一个完整 JSON 对象
 obj, _ = json.JSONDecoder().raw_decode(raw)
-now = datetime.datetime.now().isoformat()
+now = int(time.time())
+# 出卡字段组=硬门槛(缺任一→整卡不显示,2026-11-07 实证)：online/autograde/顶层 timestamp(int)/
+# frontend.url 数组形(裸串静默丢卡)/sortid=info.id 数值/permission/widget 数组/info.ext.admin/id 数值
+pid = 9000 + len(obj) % 100
 obj[app] = {
   "status": "running", "install": True, "enable": True,
   "online": True, "autograde": False, "progress": "100",
   "icon": "/icon/%s.icon" % app,
   "frontend": {"icon": "/%s.icon" % app, "title": app, "type": "url",
     "dev_type": [1,2,3,4], "url": [{"dev_type": [1,2,3,4], "url": "/"}],
-    "sortid": 1, "permission": ["admin"], "widget": []},
-  "info": {"plugin": app, "name": app, "id": "90%02d" % (len(obj) % 100), "version": "1.0.0",
+    "sortid": pid, "permission": ["admin"], "widget": []},
+  "info": {"plugin": app, "name": app, "id": pid, "version": "1.0.0",
     "port": lan, "type": "standard", "system": False, "tags": ["tool"],
     "publisher": "", "developer": "", "desc": "installed via minas-docker-app-installer",
-    "changelog": "", "timestamp": now, "size": 0, "ext": {}},
+    "changelog": "", "timestamp": now, "size": 0, "ext": {"admin": True}},
   "timestamp": now, "changetime": now,
 }
 json.dump(obj, open(p, "w"), indent=2, ensure_ascii=False)
