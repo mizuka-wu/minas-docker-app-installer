@@ -5,7 +5,7 @@
 import json, os, time, sys
 
 MANIFEST = "/data/plugin/community-apps.json"
-REGISTRY = "/data/plugin/u98067140.list"  # 清单里可用 registry 字段覆盖
+REGISTRY = None  # 必填:清单里的 registry 字段,如 /data/plugin/u<你的UID>.list
 
 def load(p):
     with open(p) as f:
@@ -20,7 +20,10 @@ def save(p, o):
 
 def main():
     m = load(MANIFEST)
-    reg_path = m.get("registry", REGISTRY)
+    reg_path = m.get("registry") or REGISTRY
+    if not reg_path:
+        sys.exit("清单缺 registry 字段(如 /data/plugin/u<UID>.list)")
+    uid = reg_path.split("u")[-1].split(".")[0]  # 从 registry 路径提取 UID
     reg = load(reg_path)
     now = int(time.time())
     added = []
@@ -33,7 +36,7 @@ def main():
             "frontend": {
                 "title": a.get("title", a["app"]), "type": "url",
                 "permission": ["admin"], "dev_type": [1, 2, 3, 4],
-                "url": [{"dev_type": [1, 2, 3, 4], "url": a.get("url", "/plugin/98067140/" + a["app"] + "/")}],
+                "url": [{"dev_type": [1, 2, 3, 4], "url": a.get("url", "/index.html")}],
                 "sortid": a.get("id", 9000), "widget": [],
             },
             "info": {

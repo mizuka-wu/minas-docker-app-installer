@@ -1,7 +1,7 @@
 ---
 name: xiaomi-nas-app-docker
 description: "Xiaomi NAS: 装 WebUI 应用(docker + 反代 + 应用中心 icon)"
-version: 2.0.0
+version: 2.1.0
 author: wuyiwei
 license: MIT
 metadata:
@@ -63,6 +63,14 @@ location /plugin/<UID>/<app>/ {
 ```
 `nginx -t && nginx -s reload`。
 
+### 3b) 直连模式(免 nginx UI 伺服,2026-11-07 实战验证)
+不依赖 `conf.d/luci` 规则(那会被 vendor 同步回收),四件套:
+1. 容器端口**绑 LAN**:`-p <lan>:<ctr_port>`(手机 WebView 从手机侧发起,回环绑法手机打不开;仅限可信内网);
+2. 容器 `pluginsrc/<app>/ui/` 放 `index.html`(内容=`<meta http-equiv="refresh" content="0;url=http://<NAS_IP>:<lan>/">` 自跳 SPA 老家,绕开资源相对路径坑)+ `<app>.cgi`(FILEURI 空/index.html→吐 index.html,其余按 `$FILEREQ` 静态伺服,`chmod +x`);
+3. 条目 `frontend.url` 用 `[{"dev_type":[1,2,3,4],"url":"/index.html"}]`(**对齐厂商原生条目的写法**;只填 `/` 会让 plugin.cgi 找不到入口→400);
+4. `resource.mpk` 可直接填 `http://<NAS_IP>:<lan>/`(应用中心接受 URL,健康检查用)。
+调试 400 的顺序:先 `tail /var/log/nginx/access.log` 看手机那条请求的真实路径与 body 大小,再分清是 cgi 甩的 400 还是别的 server 块拒的——**本机 curl 443 的 400 ≠ 手机上那个 400**(走的不是同一个 server 块)。
+
 ### 4) 持久化守护 —— 防「点添加应用被清」(cron 自动补回)
 厂商后端在你**点「添加应用」**时从**远端目录**重写 registry、把非目录条目(自装 docker 应用)清掉;本地改 `server.list` 目录没用(被远端冲)。解法=**守护清单 + cron**(不碰原厂服务):
 - **清单** `/data/plugin/community-apps.json`:列要保的应用,每条 `{app, title, icon, url, port, id}`;**新增应用 = 加一条**,守护自动认。
@@ -77,7 +85,7 @@ location /plugin/<UID>/<app>/ {
 - **注册表**:`/data/plugin/u<UID>.list`(每账号一份);**App 请求路径里的 uid 不带 `u`**(如 `u<UID>.list` 的文件 ↔ `/plugin/<UID>/` 的路径)。
 - **nginx**:标准树 `/etc/nginx/nginx.conf` 的 `http{}` → `include /etc/nginx/conf.d/*.conf`(反代丢这);`conf.d/luci/` 是 443 mTLS 站点(UI 伺服丢这);vendor `/etc/webdav/nginx/nginx.conf`(Samba/8081)**别碰**。
 - **占用端口**:官方 9000/9100/9200、商店 18119 系、系统 80/443/8081/8083/8086;反代 ≥8200,装前 `ss -ltn` 探空。
-- **落盘**:`/data` 持久(应用数据落 `/data/apps/<name>/`);`/var`=tmpfs(重启清,别放);`/`=erofs 只读;**用户数据池 `/home/<UID>/pool0/data` 绝不碰**。
+- **落盘**:`/data` 持久(应用**配置**落 `/data/apps/<name>/`);`/var`=tmpfs(重启清,别放);`/`=erofs 只读。**下载产出必须落用户库树 `/home/u<UID>/pool0/data`**(实体 `/nas/pool0/u<UID>/data`,fuse cfs)才进影音库/账号体系——`/data/apps` 在体系外,只能放配置。多应用共享下载目录:把该 data 目录挂进各容器的**相同容器内路径**(如都 `-v .../pool0/data:/media`),路径互传、同盘 mv 秒成;容器内 root 可写 fuse(touch 互通实测)。
 
 ## 卸载(uninstall,装的反序 5 步)
 ```
@@ -98,9 +106,14 @@ rm -rf /data/apps/<app>
 
 
 ## 关键坑(Pitfalls)
-- ⚠️ **注册表是 tab 格式**(`\t"key":\t{`,冒号后 tab,中文原生 UTF-8);`json.dump(indent=N)` 写**空格**→**所有 icon 全没**(踩过)。改**手术式文本插入**:整文件当文本,严格 tab 拼条目,其他条目字节不动;写完校验无 `": "`。
+- ⚠️ **应用中心 key 绝不能带连字符**(2026-11-07 实测):`.list` key = 目录名 = `INFO.plugin` 三处一致且**无 `-`**——`ani-rss` 打不开(400),改名 `anirss` 即好。
+- ⚠️ **注册表格式**:早期实测"tab 格式手术式插入";2026-11-07 复测 `json.dump(o, f, indent=2, ensure_ascii=False)` 整体重写**也完全正常**(icon/条目都在,厂商同步兼容)——两种写法都有实证,关键是写完 `plugincenter -u u<UID> list` 回读 + 手机看 icon 验证。改前必备份(备份别用 vendor `.bak` 后缀)。
 - ⚠️ **厂商后端会主动重写 `.list`**——**触发点 = 你点「添加应用」**(它从远端目录重写 registry、删自造条目;本地改 `server.list` 目录没用,会被远端冲)。手动注册**不持久**。**解法 = 第 4 步守护 cron**(清单 + 脚本,每 2 分钟自动补回);真·官方级持久需走厂商 mpk 机制(另题)。
-- **打开机制**=应用中心按 `/plugin/<UID>/<app>/` 相对路径加载 UI(需第 3 步 UI 伺服);`info.port` 只是浏览器直连兜底;**别指望 `frontend.url` 绝对 URL**(SPA 接不住→404)。
+- **打开机制**=应用中心按 `/plugin/<UID>/<app>/index.html` 相对路径加载 UI(走 UI 伺服或上面的直连模式);`frontend.url` 别填绝对 URL(会被拼进 `/plugin/` 前缀变成畸形路径),直连跳转在 index.html 里做。
+- **Java/大应用冷启动 30-60s**:`docker run` 后立刻 curl 得 000 别急着判失败,等半分钟再验。
+- **lscr qbittorrent 首启把临时 WebUI 密码打进容器日志**(grep `temporary password`),每次重启会变;WebAPI 可脚本化设置:`/api/v2/auth/login`(cookie jar)→ `setPreferences`(中文路径用 `--data-urlencode 'json={"save_path":"..."}'`)→ `defaultSavePath` 回读验证。
+- **应用自带端口未必是 EXPOSE 的**(如 ani-rss EXPOSE 8300 但真实监听 7789)→ 起容器后看应用日志确认监听口再定映射。
+- **换 icon 必须递增 `.list` 里 `?v=N` 缓存号**(icon 与 frontend.icon 两处),否则米家 App 永远显示旧图;Mac 侧出 300×300 PNG:`.ico` 用 `sips -s format png -z 300 300 in.ico --out out.png`,`.svg` 用 `qlmanage -t -s 300 -o . in.svg`;渲染完整性别只信 vision 模型,解 PNG 看主色簇+透明占比更靠谱。
 - **回环在 80 测不到 UI 伺服**(它在 443 站点,80 必 404)→ 验证靠**访问日志**:让手机点一次,`grep /var/log/nginx/access.log` 看那条请求变 200;**真实路径以日志为准,别猜**。
 - **前缀 location 可带 URI,正则 location 不行**(否则 `proxy_pass cannot have URI`)。
 - **icon 太小不渲染**:WebUI 回环抓到的可能是 32px → 256×256 才清晰。

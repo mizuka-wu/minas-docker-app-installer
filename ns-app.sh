@@ -37,8 +37,8 @@ EOF
   python3 - "$app" "$lan" "$ctr" <<'PY'
 import json, os, sys, datetime, shutil
 app, lan, ctr = sys.argv[1], sys.argv[2], sys.argv[3]
-uid = os.environ.get("MINAS_UID", "98067140")
-p = "/data/plugin/u%s.list" % os.environ.get("MINAS_UID", "98067140")
+uid = os.environ.get("MINAS_UID") or sys.exit("请设 MINAS_UID 环境变量(你的米家数字 UID)")
+p = "/data/plugin/u%s.list" % uid
 b = p + ".pre-register"
 shutil.copy(p, b) if os.path.exists(p) else None
 raw = open(p).read() if os.path.exists(p) else "{}"
@@ -62,7 +62,7 @@ os.chmod(p, 0o644)
 print("registered", len(obj), "entries ->", p)
 PY
   # UI 伺服(修 404):前缀 location 代理到容器 WebUI
-  local uid="${MINAS_UID:-98067140}"
+  local uid="${MINAS_UID:?}"
   cat > "$NGINX_LUCI/$app-uc.conf" <<EOF
 location /plugin/$uid/$app/ {
   proxy_pass http://127.0.0.1:$ctr/;
@@ -75,14 +75,15 @@ EOF
 }
 
 uninstall() {
-  local app="$1" uid="${MINAS_UID:-98067140}"
+  local app="$1" uid="${MINAS_UID:?}"
   $DOCKER rm -f "$app" 2>/dev/null || true
   rm -f "$NGINX_CONF/$app.conf" "$NGINX_LUCI/$app-uc.conf" "$ICON_DIR/$app.icon"
   nginx -t && nginx -s reload
   python3 - "$app" <<'PY'
 import json, os, sys
 app = sys.argv[1]
-p = "/data/plugin/u%s.list" % os.environ.get("MINAS_UID", "98067140")
+uid = os.environ.get("MINAS_UID") or sys.exit("请设 MINAS_UID 环境变量(你的米家数字 UID)")
+p = "/data/plugin/u%s.list" % uid
 if not os.path.exists(p): print("no registry"); sys.exit(0)
 raw = open(p).read()
 obj, _ = json.JSONDecoder().raw_decode(raw)
@@ -98,6 +99,6 @@ PY
 case "${1:-}" in
   register)  register "${2:?app}" "${3:?ctr_port}" "${4:?lan_port}" "${5:?image}" "${6:-}" ;;
   uninstall) uninstall "${2:?app}" ;;
-  list)      grep -oE '"[a-zA-Z0-9_-]+":\t' "/data/plugin/u${MINAS_UID:-98067140}.list" 2>/dev/null | tr -d '":' | sort -u || echo "(注册表不存在)" ;;
+  list)      grep -oE '"[a-zA-Z0-9_-]+":\t' "/data/plugin/u${MINAS_UID:?}.list" 2>/dev/null | tr -d '":' | sort -u || echo "(注册表不存在)" ;;
   *) echo "用法: $0 register <app> <ctr_port> <lan_port> <image> [icon_src] | uninstall <app> | list" ;;
 esac
